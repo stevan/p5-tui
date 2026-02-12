@@ -5,6 +5,7 @@ use experimental 'class';
 class P5::TUI::Table {
     use P5::TUI::BoxChars qw(:all);
     use P5::TUI::Color qw(colorize);
+    use Term::ReadKey;
 
     field $column_spec :param;
     field $rows :param;
@@ -12,6 +13,14 @@ class P5::TUI::Table {
     method draw(%args) {
         my $width = $args{width} // die "width parameter required";
         my $height = $args{height} // die "height parameter required";
+
+        # Get terminal dimensions for percentage calculations
+        my ($term_width, $term_height) = $self->_get_terminal_size();
+
+        # Parse width and height (support both numbers and percentages)
+        $width = $self->_parse_dimension($width, $term_width);
+        $height = $self->_parse_dimension($height, $term_height);
+
         my @lines;
 
         # Calculate actual column widths
@@ -51,6 +60,33 @@ class P5::TUI::Table {
         push @lines, $self->_render_bottom_border($col_widths);
 
         return \@lines;
+    }
+
+    method _get_terminal_size() {
+        # Try to get terminal size, fallback to sensible defaults
+        my ($term_width, $term_height, $x_pixels, $y_pixels);
+
+        eval {
+            local $SIG{__WARN__} = sub {};  # Suppress Term::ReadKey warnings
+            ($term_width, $term_height, $x_pixels, $y_pixels) = GetTerminalSize();
+        };
+
+        # Fallback to reasonable defaults if GetTerminalSize fails
+        $term_width  //= 80;
+        $term_height //= 24;
+
+        return ($term_width, $term_height);
+    }
+
+    method _parse_dimension($value, $terminal_size) {
+        # If it's a percentage string like "50%", calculate based on terminal size
+        if ($value =~ /^(\d+(?:\.\d+)?)%$/) {
+            my $percent = $1;
+            return int($terminal_size * $percent / 100);
+        }
+
+        # Otherwise, treat as absolute number
+        return $value;
     }
 
     method _has_headers() {
@@ -243,7 +279,12 @@ P5::TUI::Table - Render data tables with Unicode box drawing
 
     binmode(STDOUT, ':encoding(UTF-8)');
 
+    # Fixed dimensions
     my $lines = $table->draw(width => 80, height => 20);
+    say for $lines->@*;
+
+    # Or use percentages of terminal size
+    $lines = $table->draw(width => '80%', height => '50%');
     say for $lines->@*;
 
 =head1 DESCRIPTION
@@ -297,7 +338,7 @@ Values should be strings and correspond to columns by position.
 
 =head1 METHODS
 
-=head2 draw($width, $height)
+=head2 draw(width => $width, height => $height)
 
 Renders the table constrained to the given dimensions and returns an arrayref
 of strings (one per line).
@@ -308,11 +349,29 @@ Parameters:
 
 =item width
 
-Maximum width in characters (including borders)
+Maximum width in characters (including borders). Can be:
+
+=over 4
+
+=item * An absolute number: C<80>
+
+=item * A percentage of terminal width: C<'80%'>
+
+=back
+
+Percentages are calculated using L<Term::ReadKey> to get the current terminal size.
 
 =item height
 
-Maximum height in lines (including borders and headers)
+Maximum height in lines (including borders and headers). Can be:
+
+=over 4
+
+=item * An absolute number: C<20>
+
+=item * A percentage of terminal height: C<'50%'>
+
+=back
 
 =back
 
@@ -334,8 +393,20 @@ Behavior:
 
 Perl 5.42 or later with experimental class feature enabled.
 
+Required modules:
+
+=over 4
+
+=item * L<Term::ReadKey> - For terminal size detection (percentage dimensions)
+
+=item * L<P5::TUI::BoxChars> - Unicode box drawing characters
+
+=item * L<P5::TUI::Color> - ANSI color support
+
+=back
+
 =head1 SEE ALSO
 
-L<P5::TUI::BoxChars>, L<P5::TUI::Color>
+L<P5::TUI::BoxChars>, L<P5::TUI::Color>, L<Term::ReadKey>
 
 =cut
